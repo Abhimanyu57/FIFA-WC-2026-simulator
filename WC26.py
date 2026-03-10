@@ -10,7 +10,7 @@ st.title("FIFA World Cup 2026 Predictor")
 
 
 # -----------------------------
-# LOAD DATA
+# DATA LOADING
 # -----------------------------
 
 results = pd.read_csv("results.csv")
@@ -20,7 +20,7 @@ qualified = pd.read_csv("qualified_teams.csv")
 
 
 # -----------------------------
-# CLEAN DATA
+# DATA CLEANING
 # -----------------------------
 
 results["date"] = pd.to_datetime(results["date"])
@@ -68,36 +68,30 @@ results["result"] = results.apply(get_result, axis=1)
 
 
 # -----------------------------
-# TEAM STATS (only once)
+# TEAM STATS
 # -----------------------------
 
-if "team_stats" not in st.session_state:
+teams = pd.unique(results[['home_team','away_team']].values.ravel())
 
-    teams = pd.unique(results[['home_team','away_team']].values.ravel())
+team_stats = {}
 
-    team_stats = {}
+for team in teams:
 
-    for team in teams:
+    home_games = results[results["home_team"] == team]
+    away_games = results[results["away_team"] == team]
 
-        home_games = results[results["home_team"] == team]
-        away_games = results[results["away_team"] == team]
+    scored = home_games["home_score"].sum() + away_games["away_score"].sum()
+    conceded = home_games["away_score"].sum() + away_games["home_score"].sum()
 
-        scored = home_games["home_score"].sum() + away_games["away_score"].sum()
-        conceded = home_games["away_score"].sum() + away_games["home_score"].sum()
+    matches = len(home_games) + len(away_games)
 
-        matches = len(home_games) + len(away_games)
+    if matches == 0:
+        continue
 
-        if matches == 0:
-            continue
-
-        team_stats[team] = {
-            "attack": scored / matches,
-            "defense": conceded / matches
-        }
-
-    st.session_state.team_stats = team_stats
-
-team_stats = st.session_state.team_stats
+    team_stats[team] = {
+        "attack": scored / matches,
+        "defense": conceded / matches
+    }
 
 
 # -----------------------------
@@ -126,28 +120,22 @@ y = np.array(targets)
 
 
 # -----------------------------
-# MODEL TRAINING (only once)
+# MODEL TRAINING
 # -----------------------------
 
-if "model" not in st.session_state:
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
+model = XGBClassifier(
+    objective="multi:softprob",
+    num_class=3,
+    n_estimators=150,
+    max_depth=4,
+    learning_rate=0.05
+)
 
-    model = XGBClassifier(
-        objective="multi:softprob",
-        num_class=3,
-        n_estimators=150,
-        max_depth=4,
-        learning_rate=0.05
-    )
-
-    model.fit(X_train, y_train)
-
-    st.session_state.model = model
-
-model = st.session_state.model
+model.fit(X_train, y_train)
 
 
 # -----------------------------
@@ -166,6 +154,50 @@ def predict_match(teamA, teamB):
     probs = probs / probs.sum()
 
     return probs
+
+
+# -----------------------------
+# BRACKET UI FUNCTIONS
+# -----------------------------
+
+def match_box(team1, team2):
+
+    st.markdown(
+        f"""
+        <div style="
+        border:1px solid #888;
+        padding:8px;
+        margin:6px;
+        border-radius:6px;
+        text-align:center;
+        ">
+        <b>{team1}</b><br>
+        vs<br>
+        <b>{team2}</b>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def champion_box(team):
+
+    st.markdown(
+        f"""
+        <div style="
+        border:2px solid gold;
+        padding:15px;
+        margin:10px;
+        border-radius:10px;
+        text-align:center;
+        font-size:22px;
+        font-weight:bold;
+        ">
+        🏆 Champion<br>{team}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 
 # -----------------------------
@@ -196,113 +228,132 @@ if st.button("Run Simulation"):
 
     qualifier_winners = random.sample(qualifier_pool, 6)
 
-    st.subheader("Qualifier Winners")
-
-    for team in qualifier_winners:
-        st.write(team)
-
     qualified_teams = core_teams + qualifier_winners
 
     random.shuffle(qualified_teams)
 
-    groups = [qualified_teams[i:i+4] for i in range(0,48,4)]
 
-    st.subheader("Final Groups")
-
-    group_tables = []
-
-    for i,g in enumerate(groups):
-
-        st.write("Group", chr(65+i), ":", g)
-
-        points = {team:0 for team in g}
-
-        matches = [
-            (g[0],g[1]),(g[2],g[3]),
-            (g[0],g[2]),(g[1],g[3]),
-            (g[0],g[3]),(g[1],g[2])
-        ]
-
-        for t1,t2 in matches:
-
-            probs = predict_match(t1,t2)
-
-            result = np.random.choice([0,1,2],p=probs)
-
-            if result == 2:
-                points[t1]+=3
-            elif result == 0:
-                points[t2]+=3
-            else:
-                points[t1]+=1
-                points[t2]+=1
-
-        ranking = sorted(points.items(),key=lambda x:x[1],reverse=True)
-
-        group_tables.append(ranking)
+    # Round of 32
+    r32 = [(qualified_teams[i], qualified_teams[i+1]) for i in range(0,32,2)]
 
 
-    st.subheader("Group Winners")
+    winners_r32 = []
 
-    top2 = []
-    third = []
+    for t1,t2 in r32:
 
-    for i,table in enumerate(group_tables):
+        probs = predict_match(t1,t2)
+        result = np.random.choice([0,1,2],p=probs)
 
-        winner = table[0][0]
-        runner = table[1][0]
-
-        st.write("Group",chr(65+i),"winner:",winner)
-        st.write("Group",chr(65+i),"runner-up:",runner)
-
-        top2.extend([winner,runner])
-        third.append(table[2])
+        if result == 2:
+            winners_r32.append(t1)
+        elif result == 0:
+            winners_r32.append(t2)
+        else:
+            winners_r32.append(random.choice([t1,t2]))
 
 
-    third_sorted = sorted(third,key=lambda x:x[1],reverse=True)
+    # Round of 16
+    r16 = [(winners_r32[i], winners_r32[i+1]) for i in range(0,16,2)]
 
-    best_third = [x[0] for x in third_sorted[:8]]
+    winners_r16 = []
 
-    teams = top2 + best_third
+    for t1,t2 in r16:
+
+        probs = predict_match(t1,t2)
+        result = np.random.choice([0,1,2],p=probs)
+
+        if result == 2:
+            winners_r16.append(t1)
+        elif result == 0:
+            winners_r16.append(t2)
+        else:
+            winners_r16.append(random.choice([t1,t2]))
 
 
-    round_names = [
-        "Round of 32",
-        "Round of 16",
-        "Quarterfinals",
-        "Semifinals",
-        "Final"
-    ]
+    # Quarterfinals
+    qf = [(winners_r16[i], winners_r16[i+1]) for i in range(0,8,2)]
 
-    r = 0
+    winners_qf = []
 
-    while len(teams) > 1:
+    for t1,t2 in qf:
 
-        st.subheader(round_names[r])
+        probs = predict_match(t1,t2)
+        result = np.random.choice([0,1,2],p=probs)
 
-        next_round = []
+        if result == 2:
+            winners_qf.append(t1)
+        elif result == 0:
+            winners_qf.append(t2)
+        else:
+            winners_qf.append(random.choice([t1,t2]))
 
-        for i in range(0,len(teams),2):
 
-            t1 = teams[i]
-            t2 = teams[i+1]
+    # Semifinals
+    sf = [(winners_qf[i], winners_qf[i+1]) for i in range(0,4,2)]
 
-            probs = predict_match(t1,t2)
+    winners_sf = []
 
-            result = np.random.choice([0,1,2],p=probs)
+    for t1,t2 in sf:
 
-            if result == 2:
-                winner = t1
-            elif result == 0:
-                winner = t2
-            else:
-                winner = random.choice([t1,t2])
+        probs = predict_match(t1,t2)
+        result = np.random.choice([0,1,2],p=probs)
 
-            st.write(t1,"vs",t2,"→",winner)
+        if result == 2:
+            winners_sf.append(t1)
+        elif result == 0:
+            winners_sf.append(t2)
+        else:
+            winners_sf.append(random.choice([t1,t2]))
 
-            next_round.append(winner)
 
-        teams = next_round
-        r += 1
+    # Final
+    final = (winners_sf[0], winners_sf[1])
 
-    st.success("World Cup Champion: " + teams[0])
+    probs = predict_match(final[0], final[1])
+    result = np.random.choice([0,1,2],p=probs)
+
+    if result == 2:
+        champion = final[0]
+    elif result == 0:
+        champion = final[1]
+    else:
+        champion = random.choice(final)
+
+
+    # -------------------------
+    # BRACKET DISPLAY
+    # -------------------------
+
+    st.subheader("Tournament Bracket")
+
+    col1,col2,col3,col4,col5 = st.columns(5)
+
+
+    with col1:
+        st.write("Round of 32")
+        for m in r32:
+            match_box(m[0],m[1])
+
+
+    with col2:
+        st.write("Round of 16")
+        for m in r16:
+            match_box(m[0],m[1])
+
+
+    with col3:
+        st.write("Quarterfinals")
+        for m in qf:
+            match_box(m[0],m[1])
+
+
+    with col4:
+        st.write("Semifinals")
+        for m in sf:
+            match_box(m[0],m[1])
+
+
+    with col5:
+        st.write("Final")
+        match_box(final[0],final[1])
+        champion_box(champion)
