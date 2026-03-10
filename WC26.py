@@ -6,19 +6,24 @@ from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
 
+# -------------------------------
 # DATA LOADING
+# -------------------------------
 
 results = pd.read_csv("results.csv")
 shootouts = pd.read_csv("shootouts.csv")
 former = pd.read_csv("former_names.csv")
-qualified = pd.read_csv("qualified teams.csv")
+qualified = pd.read_csv("qualified_teams.csv")
 
 
+# -------------------------------
 # DATA CLEANING
+# -------------------------------
 
 results["date"] = pd.to_datetime(results["date"])
 
 name_map = dict(zip(former["former"], former["current"]))
+
 results["home_team"] = results["home_team"].replace(name_map)
 results["away_team"] = results["away_team"].replace(name_map)
 
@@ -26,12 +31,16 @@ results = results[results["tournament"] != "Friendly"]
 results = results[results["date"] >= "2022-12-19"]
 
 
+# -------------------------------
 # CORE TEAMS
+# -------------------------------
 
-core_teams = qualified["Team/Slot"].dropna().tolist()
+core_teams = qualified["Team/Slot"].dropna().astype(str).tolist()
 
 
+# -------------------------------
 # QUALIFIER CONTENDER TEAMS
+# -------------------------------
 
 qualifier_pool = [
 "Curacao","Honduras","Panama","Iraq","Oman",
@@ -40,7 +49,9 @@ qualifier_pool = [
 ]
 
 
+# -------------------------------
 # TARGET VARIABLE
+# -------------------------------
 
 def get_result(row):
     if row["home_score"] > row["away_score"]:
@@ -53,7 +64,9 @@ def get_result(row):
 results["result"] = results.apply(get_result, axis=1)
 
 
+# -------------------------------
 # TEAM STATS
+# -------------------------------
 
 teams = pd.unique(results[['home_team','away_team']].values.ravel())
 
@@ -78,7 +91,9 @@ for team in teams:
     }
 
 
+# -------------------------------
 # FEATURE ENGINEERING
+# -------------------------------
 
 features = []
 targets = []
@@ -101,7 +116,9 @@ X = np.array(features)
 y = np.array(targets)
 
 
+# -------------------------------
 # MODEL TRAINING
+# -------------------------------
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
@@ -118,7 +135,9 @@ model = XGBClassifier(
 model.fit(X_train, y_train)
 
 
+# -------------------------------
 # MATCH PREDICTOR
+# -------------------------------
 
 def predict_match(teamA, teamB):
 
@@ -134,12 +153,16 @@ def predict_match(teamA, teamB):
     return probs
 
 
+# -------------------------------
 # STREAMLIT UI
+# -------------------------------
 
 st.title("FIFA World Cup 2026 Predictor")
 
 
+# -------------------------------
 # MATCH PREDICTION
+# -------------------------------
 
 st.header("Match Prediction")
 
@@ -155,7 +178,9 @@ if st.button("Predict Match"):
     st.write(teamB + " win probability:", round(probs[0],2))
 
 
+# -------------------------------
 # WORLD CUP SIMULATION
+# -------------------------------
 
 st.header("Simulate World Cup")
 
@@ -270,6 +295,6 @@ if st.button("Run Simulation"):
             next_round.append(winner)
 
         teams = next_round
-        r+=1
+        r += 1
 
     st.success("World Cup Champion: " + teams[0])
