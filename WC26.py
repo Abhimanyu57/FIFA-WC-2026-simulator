@@ -6,9 +6,12 @@ from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
 
-# -------------------------------
-# DATA LOADING
-# -------------------------------
+st.title("FIFA World Cup 2026 Predictor")
+
+
+# -----------------------------
+# LOAD DATA
+# -----------------------------
 
 results = pd.read_csv("results.csv")
 shootouts = pd.read_csv("shootouts.csv")
@@ -16,9 +19,9 @@ former = pd.read_csv("former_names.csv")
 qualified = pd.read_csv("qualified_teams.csv")
 
 
-# -------------------------------
-# DATA CLEANING
-# -------------------------------
+# -----------------------------
+# CLEAN DATA
+# -----------------------------
 
 results["date"] = pd.to_datetime(results["date"])
 
@@ -28,19 +31,19 @@ results["home_team"] = results["home_team"].replace(name_map)
 results["away_team"] = results["away_team"].replace(name_map)
 
 results = results[results["tournament"] != "Friendly"]
-results = results[results["date"] >= "2022-12-19"]
+results = results[results["date"] >= "2018-01-01"]
 
 
-# -------------------------------
+# -----------------------------
 # CORE TEAMS
-# -------------------------------
+# -----------------------------
 
 core_teams = qualified["Team/Slot"].dropna().astype(str).tolist()
 
 
-# -------------------------------
-# QUALIFIER CONTENDER TEAMS
-# -------------------------------
+# -----------------------------
+# QUALIFIER CONTENDERS
+# -----------------------------
 
 qualifier_pool = [
 "Curacao","Honduras","Panama","Iraq","Oman",
@@ -49,9 +52,9 @@ qualifier_pool = [
 ]
 
 
-# -------------------------------
-# TARGET VARIABLE
-# -------------------------------
+# -----------------------------
+# RESULT TARGET
+# -----------------------------
 
 def get_result(row):
     if row["home_score"] > row["away_score"]:
@@ -64,36 +67,42 @@ def get_result(row):
 results["result"] = results.apply(get_result, axis=1)
 
 
-# -------------------------------
-# TEAM STATS
-# -------------------------------
+# -----------------------------
+# TEAM STATS (only once)
+# -----------------------------
 
-teams = pd.unique(results[['home_team','away_team']].values.ravel())
+if "team_stats" not in st.session_state:
 
-team_stats = {}
+    teams = pd.unique(results[['home_team','away_team']].values.ravel())
 
-for team in teams:
+    team_stats = {}
 
-    home_games = results[results["home_team"] == team]
-    away_games = results[results["away_team"] == team]
+    for team in teams:
 
-    scored = home_games["home_score"].sum() + away_games["away_score"].sum()
-    conceded = home_games["away_score"].sum() + away_games["home_score"].sum()
+        home_games = results[results["home_team"] == team]
+        away_games = results[results["away_team"] == team]
 
-    matches = len(home_games) + len(away_games)
+        scored = home_games["home_score"].sum() + away_games["away_score"].sum()
+        conceded = home_games["away_score"].sum() + away_games["home_score"].sum()
 
-    if matches == 0:
-        continue
+        matches = len(home_games) + len(away_games)
 
-    team_stats[team] = {
-        "attack": scored / matches,
-        "defense": conceded / matches
-    }
+        if matches == 0:
+            continue
+
+        team_stats[team] = {
+            "attack": scored / matches,
+            "defense": conceded / matches
+        }
+
+    st.session_state.team_stats = team_stats
+
+team_stats = st.session_state.team_stats
 
 
-# -------------------------------
+# -----------------------------
 # FEATURE ENGINEERING
-# -------------------------------
+# -----------------------------
 
 features = []
 targets = []
@@ -116,28 +125,34 @@ X = np.array(features)
 y = np.array(targets)
 
 
-# -------------------------------
-# MODEL TRAINING
-# -------------------------------
+# -----------------------------
+# MODEL TRAINING (only once)
+# -----------------------------
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
+if "model" not in st.session_state:
 
-model = XGBClassifier(
-    objective="multi:softprob",
-    num_class=3,
-    n_estimators=300,
-    max_depth=5,
-    learning_rate=0.05
-)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
 
-model.fit(X_train, y_train)
+    model = XGBClassifier(
+        objective="multi:softprob",
+        num_class=3,
+        n_estimators=150,
+        max_depth=4,
+        learning_rate=0.05
+    )
+
+    model.fit(X_train, y_train)
+
+    st.session_state.model = model
+
+model = st.session_state.model
 
 
-# -------------------------------
+# -----------------------------
 # MATCH PREDICTOR
-# -------------------------------
+# -----------------------------
 
 def predict_match(teamA, teamB):
 
@@ -153,16 +168,9 @@ def predict_match(teamA, teamB):
     return probs
 
 
-# -------------------------------
-# STREAMLIT UI
-# -------------------------------
-
-st.title("FIFA World Cup 2026 Predictor")
-
-
-# -------------------------------
-# MATCH PREDICTION
-# -------------------------------
+# -----------------------------
+# MATCH PREDICTION UI
+# -----------------------------
 
 st.header("Match Prediction")
 
@@ -178,9 +186,9 @@ if st.button("Predict Match"):
     st.write(teamB + " win probability:", round(probs[0],2))
 
 
-# -------------------------------
+# -----------------------------
 # WORLD CUP SIMULATION
-# -------------------------------
+# -----------------------------
 
 st.header("Simulate World Cup")
 
